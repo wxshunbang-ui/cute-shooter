@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🍄 超级可爱雷电射击 🍄</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/animations.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 开始界面 -->
+    <div class="start-screen" v-if="gameState === 'start'">
+      <div class="title-container">
+        <div class="star-decoration">⭐</div>
+        <h1 class="game-title">
+          <span class="title-char" v-for="(ch, i) in '超级可爱雷电'" :key="i" :style="{ animationDelay: i * 0.1 + 's' }">{{ ch }}</span>
+        </h1>
+        <div class="subtitle">~ Cute Thunder Shooter ~</div>
+        <div class="cloud cloud-left">☁️</div>
+        <div class="cloud cloud-right">☁️</div>
+      </div>
+      <div class="menu-buttons">
+        <button class="btn-start" @click="startGame">
+          <span class="btn-icon">🚀</span> 开始游戏
+        </button>
+        <button class="btn-help" @click="showHelp = true">
+          <span class="btn-icon">❓</span> 操作说明
+        </button>
+      </div>
+      <div class="high-score-display">
+        🏆 最高分: {{ highScore }}
+      </div>
+      <div class="ground-decoration">
+        <div class="ground-block" v-for="i in 20" :key="i"></div>
+      </div>
+      <!-- 帮助弹窗 -->
+      <div class="help-modal" v-if="showHelp" @click.self="showHelp = false">
+        <div class="help-content">
+          <h2>🎮 操作说明</h2>
+          <div class="help-section">
+            <h3>💻 电脑操作</h3>
+            <p>⬆️⬇️⬅️➡️ 方向键移动</p>
+            <p>空格键 发射子弹</p>
+            <p>Z键 释放炸弹💣</p>
+          </div>
+          <div class="help-section">
+            <h3>📱 手机操作</h3>
+            <p>👆 触摸拖动移动飞机</p>
+            <p>自动发射子弹</p>
+            <p>点击炸弹按钮释放炸弹</p>
+          </div>
+          <div class="help-section">
+            <h3>🌟 道具说明</h3>
+            <p>⭐ 增强火力</p>
+            <p>❤️ 恢复生命</p>
+            <p>🛡️ 护盾保护</p>
+            <p>💣 获得炸弹</p>
+          </div>
+          <button class="btn-close" @click="showHelp = false">知道啦！</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 游戏界面 -->
+    <div class="game-screen" v-if="gameState === 'playing' || gameState === 'paused'"
+         ref="gameArea"
+         @touchstart="onTouchStart"
+         @touchmove="onTouchMove"
+         @touchend="onTouchEnd">
+
+      <!-- 背景星星 -->
+      <div class="bg-star" v-for="star in bgStars" :key="star.id"
+           :style="{ left: star.x + 'px', top: star.y + 'px', fontSize: star.size + 'px', opacity: star.opacity, animationDuration: star.twinkle + 's' }">
+        ✦
+      </div>
+
+      <!-- 背景云朵 -->
+      <div class="bg-cloud" v-for="cloud in bgClouds" :key="cloud.id"
+           :style="{ left: cloud.x + 'px', top: cloud.y + 'px', fontSize: cloud.size + 'px', opacity: cloud.opacity }">
+        ☁️
+      </div>
+
+      <!-- HUD -->
+      <div class="hud">
+        <div class="hud-left">
+          <div class="score-display">🍄 {{ score }}</div>
+          <div class="combo-display" v-if="combo > 1" :class="{ 'combo-flash': comboFlash }">
+            {{ combo }}x COMBO!
+          </div>
+        </div>
+        <div class="hud-center">
+          <div class="wave-display" v-if="showWaveText" class="wave-announce">
+            🌊 第 {{ wave }} 波 🌊
+          </div>
+        </div>
+        <div class="hud-right">
+          <div class="lives-display">
+            <span v-for="i in maxLives" :key="i" :class="{ 'life-lost': i > lives }">
+              {{ i <= lives ? '❤️' : '🖤' }}
+            </span>
+          </div>
+          <div class="bombs-display">
+            💣 x {{ bombs }}
+          </div>
+        </div>
+      </div>
+
+      <!-- 玩家飞机 -->
+      <div class="player" :style="playerStyle" :class="{ 'player-hurt': playerHurt, 'player-shield': hasShield, 'player-invincible': invincible }">
+        <div class="player-body">
+          <div class="player-sprite">🐱</div>
+          <div class="player-wings">✈️</div>
+        </div>
+        <div class="player-flame" :class="{ 'flame-boost': isBoosting }">🔥</div>
+        <div class="shield-effect" v-if="hasShield">🛡️</div>
+      </div>
+
+      <!-- 玩家子弹 -->
+      <div class="bullet" v-for="bullet in playerBullets" :key="bullet.id"
+           :style="{ left: bullet.x + 'px', top: bullet.y + 'px' }"
+           :class="'bullet-level-' + bullet.level">
+        {{ bullet.level >= 3 ? '🌟' : bullet.level >= 2 ? '⭐' : '✨' }}
+      </div>
+
+      <!-- 敌人 -->
+      <div class="enemy" v-for="enemy in enemies" :key="enemy.id"
+           :style="{ left: enemy.x + 'px', top: enemy.y + 'px' }"
+           :class="['enemy-' + enemy.type, { 'enemy-hit': enemy.hitFlash }]">
+        <div class="enemy-hp-bar" v-if="enemy.maxHp > 1">
+          <div class="enemy-hp-fill" :style="{ width: (enemy.hp / enemy.maxHp * 100) + '%' }"></div>
+        </div>
+        <span class="enemy-sprite">{{ enemy.emoji }}</span>
+      </div>
+
+      <!-- 敌人子弹 -->
+      <div class="enemy-bullet" v-for="bullet in enemyBullets" :key="bullet.id"
+           :style="{ left: bullet.x + 'px', top: bullet.y + 'px' }">
+        {{ bullet.emoji || '🔴' }}
+      </div>
+
+      <!-- 道具 -->
+      <div class="powerup" v-for="powerup in powerups" :key="powerup.id"
+           :style="{ left: powerup.x + 'px', top: powerup.y + 'px' }"
+           :class="'powerup-' + powerup.type">
+        <span class="powerup-glow">{{ powerup.emoji }}</span>
+      </div>
+
+      <!-- 爆炸效果 -->
+      <div class="explosion" v-for="exp in explosions" :key="exp.id"
+           :style="{ left: exp.x + 'px', top: exp.y + 'px', fontSize: exp.size + 'px' }">
+        {{ exp.emoji }}
+      </div>
+
+      <!-- 得分弹出 -->
+      <div class="score-popup" v-for="popup in scorePopups" :key="popup.id"
+           :style="{ left: popup.x + 'px', top: popup.y + 'px' }">
+        +{{ popup.score }}
+      </div>
+
+      <!-- 炸弹效果 -->
+      <div class="bomb-effect" v-if="bombActive"></div>
+
+      <!-- 暂停按钮 -->
+      <button class="btn-pause" @click="togglePause">
+        {{ gameState === 'paused' ? '▶️' : '⏸️' }}
+      </button>
+
+      <!-- 手机炸弹按钮 -->
+      <button class="btn-bomb-mobile" @click="useBomb" v-if="isMobile">
+        💣 x{{ bombs }}
+      </button>
+
+      <!-- 暂停画面 -->
+      <div class="pause-overlay" v-if="gameState === 'paused'">
+        <div class="pause-text">⏸️ 暂停中</div>
+        <button class="btn-resume" @click="togglePause">继续游戏</button>
+        <button class="btn-quit" @click="quitGame">返回菜单</button>
+      </div>
+    </div>
+
+    <!-- 结束界面 -->
+    <div class="gameover-screen" v-if="gameState === 'gameover'">
+      <div class="gameover-container">
+        <h1 class="gameover-title">游戏结束</h1>
+        <div class="final-score">
+          <div class="score-label">最终得分</div>
+          <div class="score-value">{{ score }}</div>
+          <div class="new-record" v-if="isNewRecord">🎉 新纪录！🎉</div>
+        </div>
+        <div class="stats">
+          <div class="stat-item">
+            <span class="stat-icon">👾</span>
+            <span>消灭敌人: {{ enemiesKilled }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-icon">🌊</span>
+            <span>到达波数: {{ wave }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-icon">🔥</span>
+            <span>最高连击: {{ maxCombo }}</span>
+          </div>
+        </div>
+        <div class="gameover-buttons">
+          <button class="btn-retry" @click="startGame">
+            🔄 再来一局
+          </button>
+          <button class="btn-menu" @click="goToMenu">
+            🏠 返回菜单
+          </button>
+        </div>
+      </div>
+      <div class="ground-decoration">
+        <div class="ground-block" v-for="i in 20" :key="i"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/enemies.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
